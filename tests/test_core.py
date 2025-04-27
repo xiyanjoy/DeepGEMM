@@ -64,8 +64,8 @@ def construct_grouped(num_groups: int, m: int, k: int, n: int, is_masked: bool) 
 
 def test_gemm() -> None:
     print('Testing GEMM:')
-    for m in (64, 128, 4096):
-        for k, n in [(7168, 2112), (1536, 24576), (512, 32768), (16384, 7168), (7168, 4096), (2048, 7168)]:
+    for k, n in [(7168, 2112), (1536, 24576), (512, 32768), (16384, 7168), (7168, 4096), (2048, 7168)]:
+        for m in (1, 2, 4, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192, 200, 208, 216, 224, 232, 240, 248, 256, 4096):
             x_fp8, y_fp8, out, ref_out = construct(m, k, n)
             deep_gemm.gemm_fp8_fp8_bf16_nt(x_fp8, y_fp8, out)
             diff = calc_diff(out, ref_out)
@@ -78,7 +78,7 @@ def test_gemm() -> None:
                 deep_gemm.gemm_fp8_fp8_bf16_nt(x_fp8, y_fp8, out)
 
             t = bench_kineto(test_func, 'fp8_gemm', suppress_kineto_output=True)
-            print(f' > Performance (m={m:5}, n={n:5}, k={k:5}): {t * 1e6:4.0f} us | '
+            print(f' > Performance (m={m:5}, n={n:5}, k={k:5}): {t * 1e6:4.2f} us | '
                   f'throughput: {2 * m * n * k / t / 1e12:4.0f} TFLOPS, '
                   f'{(m * k + k * n + m * n * 2) / 1e9 / t:4.0f} GB/s')
     print()
@@ -155,4 +155,4 @@ if __name__ == '__main__':
 
     test_gemm()
     test_m_grouped_gemm_contiguous()
-    test_m_grouped_gemm_masked()
+    # test_m_grouped_gemm_masked()

@@ -17,7 +17,7 @@ constexpr auto kNumStages = {NUM_STAGES};
 constexpr auto kNumTMAMulticast = {NUM_TMA_MULTICAST};
 
 // Make a templated GEMM
-using GemmType = Gemm<N, K, BLOCK_M, BLOCK_N, 128, 1, kNumStages, kNumTMAMulticast, GemmType::Normal>;
+using GemmType = Gemm<N, K, BLOCK_M, BLOCK_N, 128, {BLOCK_M_TMA}, 1, kNumStages, kNumTMAMulticast, GemmType::Normal>;
 
 // Launch kernel
 auto tma_a_desc = GemmType::make_2d_tma_a_desc(lhs, m);
@@ -86,6 +86,8 @@ def get_best_configs(m: int, n: int, k: int, num_groups: int, num_sms: int,
             best_block_m, best_block_n = (block_m, block_n) if success else (best_block_m, best_block_n)
     assert best_block_m is not None and best_block_n is not None
 
+    best_block_m_tma = min(ceil_div(m, 8) * 8, best_block_m)
+
     # Always pick the longest one
     # NOTES: for double B scales, the best number of stages may be reduced
     best_num_stages, best_smem_size, sm90_capacity = None, None, 232448
@@ -101,7 +103,7 @@ def get_best_configs(m: int, n: int, k: int, num_groups: int, num_sms: int,
     if m >= 1024 and is_tma_multicast_legal(n, best_block_n, 2, num_sms) and num_groups == 1:
         best_num_tma_multicast = 2
 
-    return best_block_m, best_block_n, best_num_stages, best_num_tma_multicast, best_smem_size
+    return best_block_m, best_block_n, best_block_m_tma, best_num_stages, best_num_tma_multicast, best_smem_size
 
 
 def gemm_fp8_fp8_bf16_nt(lhs: Tuple[torch.Tensor, torch.Tensor],
@@ -151,11 +153,11 @@ def gemm_fp8_fp8_bf16_nt(lhs: Tuple[torch.Tensor, torch.Tensor],
     # Auto-tuning with compilation
     global includes, template
     num_sms = get_num_sms()
-    block_m, block_n, num_stages, num_tma_multicast, smem_size = get_best_configs(m, n, k, 1, num_sms)
+    block_m, block_n, block_m_tma, num_stages, num_tma_multicast, smem_size = get_best_configs(m, n, k, 1, num_sms)
     args = (lhs, lhs_scales, rhs, rhs_scales, out, m, torch.cuda.current_stream(), num_sms, smem_size)
     runtime = jit_tuner.compile_and_tune(
         name='gemm_fp8_fp8_bf16_nt',
-        keys={'N': n, 'K': k, 'BLOCK_M': block_m, 'BLOCK_N': block_n,
+        keys={'N': n, 'K': k, 'BLOCK_M': block_m, 'BLOCK_N': block_n, 'BLOCK_M_TMA': block_m_tma,
               'NUM_STAGES': num_stages, 'NUM_TMA_MULTICAST': num_tma_multicast},
         space=(),
         includes=includes,

@@ -29,6 +29,7 @@ __device__ __host__ constexpr int get_num_threads_per_sm(int block_m) {
 
 template <uint32_t SHAPE_N, uint32_t SHAPE_K,
           uint32_t BLOCK_M, uint32_t BLOCK_N, uint32_t BLOCK_K,
+          uint32_t BLOCK_M_TMA,
           uint32_t kNumGroups, uint32_t kNumStages,
           uint32_t kNumTMAThreads, uint32_t kNumMathThreadsPerGroup,
           uint32_t kNumTMAMulticast,
@@ -52,8 +53,10 @@ fp8_gemm_kernel(__nv_bfloat16* gmem_d, float* scales_b, int* grouped_layout,
     // Shared memory
     static constexpr uint32_t SMEM_D_SIZE = BLOCK_M * BLOCK_N * sizeof(__nv_bfloat16);
     static constexpr uint32_t SMEM_A_SIZE_PER_STAGE = BLOCK_M * BLOCK_K * sizeof(__nv_fp8_e4m3);
+    static constexpr uint32_t SMEM_A_SIZE_PER_STAGE_TMA = BLOCK_M_TMA * BLOCK_K * sizeof(__nv_fp8_e4m3);
     static constexpr uint32_t SMEM_B_SIZE_PER_STAGE = BLOCK_N * BLOCK_K * sizeof(__nv_fp8_e4m3);
     static constexpr uint32_t SMEM_SCALES_A_SIZE_PER_STAGE = BLOCK_M * sizeof(float);
+    static constexpr uint32_t SMEM_SCALES_A_SIZE_PER_STAGE_TMA = BLOCK_M_TMA * sizeof(float);
     static constexpr uint32_t SHAPE_K_SCALES = ceil_div(SHAPE_K, BLOCK_K);
     static constexpr int kMustUseUniformedScaleB = (BLOCK_K % BLOCK_N == 0);
 
@@ -177,7 +180,7 @@ fp8_gemm_kernel(__nv_bfloat16* gmem_d, float* scales_b, int* grouped_layout,
                         // Issue TMA B without broadcasting
                         tma_copy(&tensor_map_b, reinterpret_cast<uint64_t*>(&full_barrier),
                                  smem_b[s], k_idx, scheduler.get_global_idx<false>(SHAPE_N, BLOCK_N, n_block_idx, m_block_idx));
-                        full_barrier.arrive_and_expect_tx(SMEM_A_SIZE_PER_STAGE + SMEM_B_SIZE_PER_STAGE + SMEM_SCALES_A_SIZE_PER_STAGE);
+                        full_barrier.arrive_and_expect_tx(SMEM_A_SIZE_PER_STAGE_TMA + SMEM_B_SIZE_PER_STAGE + SMEM_SCALES_A_SIZE_PER_STAGE_TMA);
                     }
 
                     // Wait unaligned cases
@@ -342,6 +345,7 @@ fp8_gemm_kernel(__nv_bfloat16* gmem_d, float* scales_b, int* grouped_layout,
 
 template <uint32_t SHAPE_N, uint32_t SHAPE_K,
           uint32_t BLOCK_M, uint32_t BLOCK_N, uint32_t BLOCK_K,
+          uint32_t BLOCK_M_TMA,
           uint32_t kNumGroups, uint32_t kNumStages,
           uint32_t kNumTMAMulticast,
           GemmType kGemmType>
@@ -363,7 +367,7 @@ public:
         // NOTES: we must use 4 warps to do TMA, because `setmaxnreg.aligned` requires 4 warps
         constexpr uint32_t kNumTMAThreads = 128;
         constexpr uint32_t kNumMathThreadsPerGroup = 128;
-        auto kernel = fp8_gemm_kernel<SHAPE_N, SHAPE_K, BLOCK_M, BLOCK_N, BLOCK_K,
+        auto kernel = fp8_gemm_kernel<SHAPE_N, SHAPE_K, BLOCK_M, BLOCK_N, BLOCK_K, BLOCK_M_TMA,
                                       kNumGroups, kNumStages, kNumTMAThreads, kNumMathThreadsPerGroup,
                                       kNumTMAMulticast, kGemmType>;
         DG_HOST_ASSERT(cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size) == cudaSuccess);
@@ -394,7 +398,7 @@ public:
     template <typename T>
     static CUtensorMap make_2d_tma_a_desc(T* global_address, uint32_t shape_m) {
         return make_2d_tma_desc(global_address, Layout::RowMajor,
-                                shape_m * (kGemmType == GemmType::GroupedMasked ? kNumGroups : 1), SHAPE_K, BLOCK_M, BLOCK_K);
+                                shape_m * (kGemmType == GemmType::GroupedMasked ? kNumGroups : 1), SHAPE_K, BLOCK_M_TMA, BLOCK_K);
     }
 
     template <typename T>
@@ -418,7 +422,7 @@ public:
         shape_m = ceil_div(shape_m, kAlignment) * kAlignment;
 
         return make_2d_tma_desc(global_address, Layout::ColMajor,
-                                shape_m, ceil_div(SHAPE_K, BLOCK_K) * (kGemmType == GemmType::GroupedMasked ? kNumGroups : 1), BLOCK_M, 1,
+                                shape_m, ceil_div(SHAPE_K, BLOCK_K) * (kGemmType == GemmType::GroupedMasked ? kNumGroups : 1), BLOCK_M_TMA, 1,
                                 CUtensorMapSwizzle::CU_TENSOR_MAP_SWIZZLE_NONE);
     }
 
