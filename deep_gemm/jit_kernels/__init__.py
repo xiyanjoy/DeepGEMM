@@ -1,7 +1,9 @@
-from .gemm import gemm_fp8_fp8_bf16_nt
+from .gemm import gemm_fp8_fp8_bf16_nt, gemm_fp8_fp8_bf16_nt_swapAB
+from .m_grouped_gemm_with_offset import m_grouped_gemm_fp8_fp8_bf16_nt_offset, m_grouped_gemm_fp8_fp8_bf16_nt_offset_swapAB
+from .strided_batched_gemm import strided_batched_gemm_fp8_fp8_bf16_nt
 from .m_grouped_gemm import (
     m_grouped_gemm_fp8_fp8_bf16_nt_contiguous,
-    m_grouped_gemm_fp8_fp8_bf16_nt_masked
+    m_grouped_gemm_fp8_fp8_bf16_nt_masked,
 )
 from .utils import (
     ceil_div, set_num_sms, get_num_sms,
